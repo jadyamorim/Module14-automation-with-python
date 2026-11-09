@@ -10,6 +10,8 @@ EMAIL_ADDRESS = os.environ.get('EMAIL_ADDRESS')
 EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
 SSH_PASSPHRASE = os.environ.get('SSH_PASSPHRASE')
 LINODE_TOKEN = os.environ.get('LINODE_TOKEN')
+SSH_KEY_PATH = os.environ.get('SSH_KEY_PATH')
+CONTAINER_ID = os.environ.get('CONTAINER_ID')
 
 # send notification
 def send_notification(email_msg):
@@ -31,24 +33,41 @@ def restart_server_and_container():
     # restart the application
     while True:
         nginx_server = client.load(linode_api4.Instance, 109525143)
+        
         if nginx_server.status == 'running':
             time.sleep(5)
             restart_container()
             break
+
+        # Stop waiting after 5 mins
+        if time.time() - start_time > timeout:
+            print('Server reboot timed out!')
+            break
+
+        time.sleep(5)
 
 # restart linode container
 def restart_container():
     print('Restarting the application...')
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(hostname='172.238.33.252', username='root', key_filename='C:/Users/admin/.ssh/id_ed25519', passphrase=os.environ.get('SSH_PASSPHRASE'))
-    stdin, stdout, stderr = ssh.exec_command('docker start 872c6b08f3aa')
+    ssh.connect(
+        hostname='172.238.33.252', 
+        username='root', 
+        key_filename=SSH_KEY_PATH, 
+        passphrase=os.environ.get('SSH_PASSPHRASE')
+    )
+    stdin, stdout, stderr = ssh.exec_command(f'docker start {CONTAINER_ID}')
     print(stdout.readlines())
     ssh.close()
 
 def monitor_application():
     try:
-        response = requests.get('http://172-238-33-252.ip.linodeusercontent.com:8080/')
+        # Add requests timeout
+        response = requests.get(
+            'http://172-238-33-252.ip.linodeusercontent.com:8080/',
+            timeout=10         
+        )
         if response.status_code == 200:
             print('Application is running successfully!')
         else:
@@ -67,3 +86,4 @@ schedule.every(5).minute.do(monitor_application)
 
 while True:
     schedule.run_pending()
+    time.sleep(1)  # Prevent unnecessary CPU usage
